@@ -78,29 +78,48 @@ async def register_user_profile(
             detail="User not found or not active."
         )
 
-    if not user_data.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload avatar. Please try again later."
-        )
+    # Перевірка наявності аватара
+    if user_data.avatar and user_data.avatar.content_type:
+        if not user_data.avatar.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File is not an image"
+            )
 
-    # Читання вмісту файлу
-    contents = await user_data.read()
-    filename = f"user_{user_id}_avatar.jpg"
+        # Читання вмісту файлу
+        contents = await user_data.avatar.read()
+        filename = f"avatars/{user_id}_avatar.jpg"
+    else:
+        contents = None
+        filename = None
 
     try:
+        # Створюємо профіль без аватара спочатку
+        profile_data = user_data.model_dump(exclude={"avatar"}, exclude_unset=True)
+
+        # Конвертуємо імена в нижній регістр
+        if "first_name" in profile_data:
+            profile_data["first_name"] = profile_data["first_name"].lower()
+        if "last_name" in profile_data:
+            profile_data["last_name"] = profile_data["last_name"].lower()
+
         new_profile = UserProfileModel(
             user_id=user_id,
-            **user_data.dict(exclude_unset=True)
+            **profile_data
         )
-        # Завантаження файлу в S3
-        await s3_storage.upload_file(filename, contents)
 
-        # Отримання URL файлу
-        avatar_url = await s3_storage.get_file_url(filename)
+        # Якщо є аватар, завантажуємо його в S3 і оновлюємо профіль
+        if contents and filename:
+            await s3_storage.upload_file(filename, contents)
+            new_profile.avatar = filename
+
+        # Перевіряємо, чи вже існує профіль
         if user.profile:
-            user.profile.avatar = avatar_url
-            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User already has a profile."
+            )
+
         db.add(new_profile)
         await db.commit()
         await db.refresh(new_profile)
