@@ -1,7 +1,7 @@
 from fastapi import Header
 
 from database.models.accounts import UserProfileModel
-from schemas.profiles import BaseProfileResponseSchema, BaseProfileRequestSchema
+from schemas.profiles import BaseProfileResponseSchema, BaseProfileRequestSchema, AvatarUploadResponse
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, status, HTTPException
@@ -51,7 +51,7 @@ async def register_user_profile(
 
     try:
         token_data = jwt_auth_manager.decode_access_token(token_str)
-        current_user_id = int(token_data["sub"])
+        current_user_id = int(token_data["user_id"])
     except (BaseSecurityError, ValueError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -73,13 +73,12 @@ async def register_user_profile(
             detail="Користувача не знайдено або обліковий запис не активний"
         )
 
-    if user.profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Профіль вже існує для цього користувача"
-        )
+    # if user.profile:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="Профіль вже існує для цього користувача"
+    #     )
 
-    # Створення профілю
     new_profile = UserProfileModel(
         user_id=user_id,
         **user_data.dict(exclude_unset=True)
@@ -96,104 +95,99 @@ async def register_user_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Помилка при створенні профілю"
         )
-# async def register_user(
-#         user_id: int,
-#         user_data: BaseProfileRequestSchema,
-#         Authorization: str = Header(...),
-#         db: AsyncSession = Depends(get_db),
-#         jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
-#
-# ) -> BaseProfileResponseSchema:
-#
-#
-#     if not Authorization.startswith("Bearer "):
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid Authorization header format. Expected 'Bearer <token>'"
-#         )
-#
-#     token_str = Authorization.removeprefix("Bearer ").strip()
-#
-#     try:
-#         # Перевіряємо JWT токен
-#         token_data = jwt_auth_manager.decode_access_token(token_str)
-#         # user_id_from_token = token_data["sub"]  # або інше поле, де зберігається id користувача
-#         # if user_id != user_id_from_token:
-#         #     raise HTTPException(
-#         #         status_code=status.HTTP_403_FORBIDDEN,
-#         #         detail="You can only create or edit your own profile."
-#         #     )
-#     except BaseSecurityError as e:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail=str(e)
-#         )
-#
-#     user_stmt = select(UserModel).where(UserModel.id == user_id)
-#     user_result = await db.execute(user_stmt)
-#     user = user_result.scalars().first()
-#
-#
-#     if not user:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Authorization header is missing"
-#         )
-#
-#     # now_utc = datetime.now(timezone.utc)
-#     # if cast(datetime, user._hashed_password.expires_at).replace(tzinfo=timezone.utc) < now_utc:
-#     #     raise HTTPException(
-#     #         status_code=status.HTTP_401_UNAUTHORIZED,
-#     #         detail="Token has expired."
-#     #     )
-#     now_utc = datetime.now(timezone.utc)
-#
-#     # Наприклад, беремо перший токен (або шукаємо потрібний по токену)
-#     refresh_token = user.refresh_tokens[0]  # або інший спосіб отримання токена
-#
-#     if refresh_token.expires_at < now_utc:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Token has expired."
-#         )
-#
-#
-#     if user.group != "user" or  user_data.email != user.email:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="You don't have permission to edit this profile."
-#         )
-#     if not user or not user.is_active:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="User not found or not active."
-#         )
-#
-#     if user.profile:
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="User already has a profile."
-#         )
-#
-#     new_profile = UserProfileModel(
-#         user_id=user_id,
-#         first_name=user_data.first_name,
-#         last_name=user_data.last_name,
-#         gender=user_data.gender,
-#         date_of_birth=user_data.date_of_birth,
-#         info=user_data.info,
-#     )
-#
-#
-#     try:
-#         db.add(new_profile)
-#         await db.commit()
-#         await db.refresh(new_profile)
-#     except SQLAlchemyError:
-#         await db.rollback()
-#         raise HTTPException(
-#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             detail="Сталася помилка при створенні профілю."
-#         )
-#
-#     return BaseProfileResponseSchema.model_validate(new_profile)
+
+
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Header
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+from config import get_s3_storage_client
+from database import get_db, UserModel
+from storages import S3StorageInterface
+from exceptions import S3FileUploadError, S3ConnectionError
+
+@router.post("/users/{user_id}/avatar/", response_model=AvatarUploadResponse)
+async def upload_avatar(
+    user_id: int,
+    file: UploadFile = File(...),
+    Authorization: str = Header(..., description="Bearer токен у форматі 'Bearer <token>'"),
+    db: AsyncSession = Depends(get_db),
+    jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
+    s3_storage: S3StorageInterface = Depends(get_s3_storage_client)
+):
+    if not Authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Недійсний формат заголовка Authorization. Очікується 'Bearer <token>'"
+        )
+
+    token_str = Authorization.removeprefix("Bearer ").strip()
+
+    try:
+        token_data = jwt_auth_manager.decode_access_token(token_str)
+        current_user_id = int(token_data["user_id"])
+    except (BaseSecurityError, ValueError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Недійсний або протермінований токен"
+        )
+
+    # Перевірка прав доступу
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостатньо прав для завантаження аватара"
+        )
+
+    # Отримання та перевірка користувача
+    user = await db.get(UserModel, current_user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Користувача не знайдено або обліковий запис не активний"
+        )
+
+    # Перевірка типу файлу
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Файл не є зображенням"
+        )
+
+    # Читання вмісту файлу
+    contents = await file.read()
+
+    # Генерація імені файлу
+    filename = f"user_{user_id}_avatar.jpg"
+
+    try:
+        # Завантаження файлу в S3
+        await s3_storage.upload_file(filename, contents)
+
+        # Отримання URL файлу
+        avatar_url = await s3_storage.get_file_url(filename)
+
+        # Оновлення профілю користувача
+        if user.profile:
+            user.profile.avatar = avatar_url
+            await db.commit()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Профіль користувача не знайдено. Спочатку створіть профіль."
+            )
+
+        return AvatarUploadResponse(detail="Аватар успішно завантажено", avatar_url=avatar_url)
+
+    except (S3ConnectionError, S3FileUploadError) as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Помилка при завантаженні файлу: {str(e)}"
+        )
+    except SQLAlchemyError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Помилка при оновленні профілю"
+        )

@@ -20,7 +20,7 @@ class BaseProfileRequestSchema(BaseModel):
     gender: Optional[GenderEnum] = None
     date_of_birth: date
     info: str
-    avatar: UploadFile | None = None
+    avatar: HttpUrl | None = None
 
     model_config = {
         "from_attributes": True
@@ -71,4 +71,12 @@ class BaseProfileResponseSchema(BaseModel):
     gender: str
     date_of_birth: date
     info: str
-    avatar: UploadFile | None = None
+    avatar: HttpUrl | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class AvatarUploadResponse(BaseModel):
+    detail: str
+    avatar_url: HttpUrl

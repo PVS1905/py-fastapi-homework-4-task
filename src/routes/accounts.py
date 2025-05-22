@@ -297,7 +297,7 @@ async def request_password_reset_token(
     db.add(reset_token)
     await db.commit()
 
-    reset_url = f"http://127.0.0.1:8000/api/accounts//password-reset/request/?token={reset_token.token}"  # можна винести в конфігурацію
+    reset_url = f"http://127.0.0.1:8000/api/accounts/password-reset/request/?token={reset_token.token}"  # можна винести в конфігурацію
 
     background_tasks.add_task(
         email_sender.send_password_reset_email,
