@@ -19,7 +19,7 @@ class BaseProfileRequestSchema(BaseModel):
     gender: Optional[GenderEnum] = None
     date_of_birth: date
     info: str
-    avatar: Optional[HttpUrl] = None
+    avatar: UploadFile = None
 
     model_config = {
         "from_attributes": True
@@ -61,6 +61,25 @@ class BaseProfileRequestSchema(BaseModel):
     def info_validator(cls, value):
         return value.strip()
 
+    @classmethod
+    def from_form(
+        cls,
+        first_name: str = Form(...),
+        last_name: str = Form(...),
+        gender: str = Form(...),
+        date_of_birth: date = Form(...),
+        info: str = Form(...),
+        avatar: UploadFile = File(...),
+    ) -> "BaseProfileRequestSchema":
+        return cls(
+            first_name=first_name,
+            last_name=last_name,
+            gender=gender,
+            date_of_birth=date_of_birth,
+            info=info,
+            avatar=avatar,
+        )
+
 
 class BaseProfileResponseSchema(BaseModel):
     id: int
@@ -70,14 +89,6 @@ class BaseProfileResponseSchema(BaseModel):
     gender: str
     date_of_birth: date
     info: str
-    avatar: Optional[HttpUrl] = None
-
-    class Config:
-        from_attributes = True
-
-
-class AvatarUploadResponse(BaseModel):
-    detail: str
     avatar: Optional[HttpUrl] = None
 
     class Config:

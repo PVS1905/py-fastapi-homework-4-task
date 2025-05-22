@@ -4,7 +4,6 @@ from database.models.accounts import UserProfileModel
 from schemas.profiles import (
     BaseProfileResponseSchema,
     BaseProfileRequestSchema,
-    AvatarUploadResponse
 )
 from datetime import datetime, timezone
 
@@ -31,13 +30,6 @@ from exceptions import S3FileUploadError, S3ConnectionError
 router = APIRouter()
 
 
-# Метод HTTP :POST
-# Шлях :/users/{user_id}/profile/
-# Відповідь :ProfileResponseSchema
-# Авторизація : Потрібно дійсний Bearerтокен у Authorizationзаголовку.
-# # Write your code here
-# POST /users/{user_id}/profile/
-
 @router.post(
     "/users/{user_id}/profile/",
     response_model=BaseProfileResponseSchema,
@@ -48,7 +40,8 @@ async def register_user_profile(
         user_data: BaseProfileRequestSchema,
         Authorization: str = Header(..., description="Bearer токен у форматі 'Bearer <token>'"),
         db: AsyncSession = Depends(get_db),
-        jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager)
+        jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
+        s3_storage: S3StorageInterface = Depends(get_s3_storage_client)
 ) -> BaseProfileResponseSchema:
     """Створення профілю користувача"""
 
@@ -56,7 +49,7 @@ async def register_user_profile(
     if not Authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недійсний формат заголовка Authorization. Очікується 'Bearer <token>'"
+            detail="Invalid Authorization header format. Expected 'Bearer <token>'"
         )
 
     token_str = Authorization.removeprefix("Bearer ").strip()
@@ -67,36 +60,47 @@ async def register_user_profile(
     except (BaseSecurityError, ValueError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недійсний або протермінований токен"
+            detail="Token has expired."
         )
 
     # Перевірка прав доступу
     if user_id != current_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостатньо прав для створення профілю"
+            detail="You don't have permission to edit this profile."
         )
 
     # Отримання та перевірка користувача
     user = await db.get(UserModel, current_user_id)
     if not user or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Користувача не знайдено або обліковий запис не активний"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or not active."
         )
 
-    # if user.profile:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_400_BAD_REQUEST,
-    #         detail="Профіль вже існує для цього користувача"
-    #     )
+    if not user_data.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload avatar. Please try again later."
+        )
 
-    new_profile = UserProfileModel(
-        user_id=user_id,
-        **user_data.dict(exclude_unset=True)
-    )
+    # Читання вмісту файлу
+    contents = await user_data.read()
+    filename = f"user_{user_id}_avatar.jpg"
 
     try:
+        new_profile = UserProfileModel(
+            user_id=user_id,
+            **user_data.dict(exclude_unset=True)
+        )
+        # Завантаження файлу в S3
+        await s3_storage.upload_file(filename, contents)
+
+        # Отримання URL файлу
+        avatar_url = await s3_storage.get_file_url(filename)
+        if user.profile:
+            user.profile.avatar = avatar_url
+            await db.commit()
         db.add(new_profile)
         await db.commit()
         await db.refresh(new_profile)
@@ -106,91 +110,4 @@ async def register_user_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Помилка при створенні профілю"
-        )
-
-
-@router.post("/users/{user_id}/avatar/", response_model=AvatarUploadResponse)
-async def upload_avatar(
-    user_id: int,
-    file: UploadFile = File(...),
-    Authorization: str = Header(..., description="Bearer токен у форматі 'Bearer <token>'"),
-    db: AsyncSession = Depends(get_db),
-    jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
-    s3_storage: S3StorageInterface = Depends(get_s3_storage_client)
-):
-    if not Authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недійсний формат заголовка Authorization. Очікується 'Bearer <token>'"
-        )
-
-    token_str = Authorization.removeprefix("Bearer ").strip()
-
-    try:
-        token_data = jwt_auth_manager.decode_access_token(token_str)
-        current_user_id = int(token_data["user_id"])
-    except (BaseSecurityError, ValueError, KeyError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недійсний або протермінований токен"
-        )
-
-    # Перевірка прав доступу
-    if user_id != current_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостатньо прав для завантаження аватара"
-        )
-
-    # Отримання та перевірка користувача
-    user = await db.get(UserModel, current_user_id)
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Користувача не знайдено або обліковий запис не активний"
-        )
-
-    # Перевірка типу файлу
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Файл не є зображенням"
-        )
-
-    # Читання вмісту файлу
-    contents = await file.read()
-
-    # Генерація імені файлу
-    filename = f"user_{user_id}_avatar.jpg"
-
-    try:
-        # Завантаження файлу в S3
-        await s3_storage.upload_file(filename, contents)
-
-        # Отримання URL файлу
-        avatar_url = await s3_storage.get_file_url(filename)
-
-        # Оновлення профілю користувача
-        if user.profile:
-            user.profile.avatar = avatar_url
-            await db.commit()
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Профіль користувача не знайдено. Спочатку створіть профіль."
-            )
-
-        return AvatarUploadResponse(detail="Аватар успішно завантажено", avatar_url=avatar_url)
-
-    except (S3ConnectionError, S3FileUploadError) as e:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Помилка при завантаженні файлу: {str(e)}"
-        )
-    except SQLAlchemyError:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Помилка при оновленні профілю"
         )
