@@ -1,7 +1,11 @@
 from fastapi import Header
 
 from database.models.accounts import UserProfileModel
-from schemas.profiles import BaseProfileResponseSchema, BaseProfileRequestSchema, AvatarUploadResponse
+from schemas.profiles import (
+    BaseProfileResponseSchema,
+    BaseProfileRequestSchema,
+    AvatarUploadResponse
+)
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, status, HTTPException
@@ -16,6 +20,14 @@ from database import (
 )
 from exceptions import BaseSecurityError
 from security.interfaces import JWTAuthManagerInterface
+
+
+from fastapi import File, UploadFile
+from config import get_s3_storage_client
+from storages import S3StorageInterface
+from exceptions import S3FileUploadError, S3ConnectionError
+
+
 router = APIRouter()
 
 
@@ -96,15 +108,6 @@ async def register_user_profile(
             detail="Помилка при створенні профілю"
         )
 
-
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Header
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
-from config import get_s3_storage_client
-from database import get_db, UserModel
-from storages import S3StorageInterface
-from exceptions import S3FileUploadError, S3ConnectionError
 
 @router.post("/users/{user_id}/avatar/", response_model=AvatarUploadResponse)
 async def upload_avatar(

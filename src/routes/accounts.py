@@ -112,8 +112,6 @@ async def register_user(
             detail="Default user group not found."
         )
 
-
-
     try:
         new_user = UserModel.create(
             email=str(user_data.email),
@@ -182,10 +180,6 @@ async def activate_account(
     db: AsyncSession = Depends(get_db),
     email_sender: EmailSenderInterface = Depends(get_accounts_email_notificator),
 ) -> MessageResponseSchema:
-
-
-
-
     """
     Endpoint to activate a user's account.
 
@@ -234,9 +228,6 @@ async def activate_account(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User account is already active."
         )
-
-
-
 
     user.is_active = True
     await db.delete(token_record)
@@ -297,7 +288,7 @@ async def request_password_reset_token(
     db.add(reset_token)
     await db.commit()
 
-    reset_url = f"http://127.0.0.1:8000/api/accounts/reset-password/complete/?token={reset_token.token}"  # можна винести в конфігурацію
+    reset_url = f"http://127.0.0.1:8000/api/accounts/reset-password/complete/?token={reset_token.token}"
 
     background_tasks.add_task(
         email_sender.send_password_reset_email,

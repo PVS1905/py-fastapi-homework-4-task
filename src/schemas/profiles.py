@@ -13,7 +13,6 @@ from validation import (
 )
 
 
-
 class BaseProfileRequestSchema(BaseModel):
     first_name: str
     last_name: str
