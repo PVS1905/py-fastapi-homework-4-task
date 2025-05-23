@@ -5,10 +5,8 @@ from schemas.profiles import (
     BaseProfileResponseSchema,
     BaseProfileRequestSchema,
 )
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, status, HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,10 +19,8 @@ from exceptions import BaseSecurityError
 from security.interfaces import JWTAuthManagerInterface
 
 
-from fastapi import File, UploadFile
 from config import get_s3_storage_client
 from storages import S3StorageInterface
-from exceptions import S3FileUploadError, S3ConnectionError
 
 
 router = APIRouter()
@@ -45,7 +41,6 @@ async def register_user_profile(
 ) -> BaseProfileResponseSchema:
     """Створення профілю користувача"""
 
-    # Обробка токена
     if not Authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -70,7 +65,6 @@ async def register_user_profile(
             detail="You don't have permission to edit this profile."
         )
 
-    # Отримання та перевірка користувача
     user = await db.get(UserModel, current_user_id)
     if not user or not user.is_active:
         raise HTTPException(
@@ -78,7 +72,6 @@ async def register_user_profile(
             detail="User not found or not active."
         )
 
-    # Перевірка наявності аватара
     if user_data.avatar and user_data.avatar.content_type:
         if not user_data.avatar.content_type.startswith("image/"):
             raise HTTPException(
@@ -86,7 +79,6 @@ async def register_user_profile(
                 detail="File is not an image"
             )
 
-        # Читання вмісту файлу
         contents = await user_data.avatar.read()
         filename = f"avatars/{user_id}_avatar.jpg"
     else:
@@ -94,10 +86,8 @@ async def register_user_profile(
         filename = None
 
     try:
-        # Створюємо профіль без аватара спочатку
         profile_data = user_data.model_dump(exclude={"avatar"}, exclude_unset=True)
 
-        # Конвертуємо імена в нижній регістр
         if "first_name" in profile_data:
             profile_data["first_name"] = profile_data["first_name"].lower()
         if "last_name" in profile_data:
@@ -108,12 +98,10 @@ async def register_user_profile(
             **profile_data
         )
 
-        # Якщо є аватар, завантажуємо його в S3 і оновлюємо профіль
         if contents and filename:
             await s3_storage.upload_file(filename, contents)
             new_profile.avatar = filename
 
-        # Перевіряємо, чи вже існує профіль
         if user.profile:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -128,5 +116,5 @@ async def register_user_profile(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Помилка при створенні профілю"
+            detail="Error when creating a profile"
         )
