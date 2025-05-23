@@ -11,6 +11,7 @@ from validation import (
     validate_gender,
     validate_birth_date
 )
+from fastapi import status
 
 
 class BaseProfileRequestSchema(BaseModel):
@@ -28,38 +29,74 @@ class BaseProfileRequestSchema(BaseModel):
     @field_validator("first_name")
     @classmethod
     def first_name_validator(cls, value):
-        validate_name(value)
+        try:
+            validate_name(value)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
         return value
 
     @field_validator("last_name")
     @classmethod
     def last_name_validator(cls, value):
-        validate_name(value)
+        try:
+            validate_name(value)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
         return value
 
     @field_validator("gender")
     @classmethod
-    def gender_validator(cls, value):
-        validate_gender(value)
+    def validate_field_gender(cls, value):
+        try:
+            validate_gender(value)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
         return value
 
     @field_validator("avatar")
     @classmethod
     def avatar_validator(cls, value):
-        if value is not None:
-            validate_image(value)
+        try:
+            if value is not None:
+                validate_image(value)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
         return value
 
     @field_validator("date_of_birth")
     @classmethod
     def birth_date_validator(cls, value):
-        validate_birth_date(value)
+        try:
+            validate_birth_date(value)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
         return value
 
     @field_validator("info")
     @classmethod
     def info_validator(cls, value):
-        return value.strip()
+        try:
+            return value.strip()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
 
     @classmethod
     def from_form(
@@ -71,14 +108,20 @@ class BaseProfileRequestSchema(BaseModel):
         info: str = Form(...),
         avatar: UploadFile = File(...),
     ) -> "BaseProfileRequestSchema":
-        return cls(
-            first_name=first_name,
-            last_name=last_name,
-            gender=gender,
-            date_of_birth=date_of_birth,
-            info=info,
-            avatar=avatar,
-        )
+        try:
+            return cls(
+                first_name=first_name,
+                last_name=last_name,
+                gender=gender,
+                date_of_birth=date_of_birth,
+                info=info,
+                avatar=avatar,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
 
 
 class BaseProfileResponseSchema(BaseModel):
