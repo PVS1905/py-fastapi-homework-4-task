@@ -5,7 +5,8 @@ from schemas.profiles import (
     BaseProfileResponseSchema,
     BaseProfileRequestSchema,
 )
-
+from typing import cast
+from pydantic import HttpUrl
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,7 @@ router = APIRouter()
 )
 async def register_user_profile(
         user_id: int,
-        user_data: BaseProfileRequestSchema,
+        user_data: BaseProfileRequestSchema = Depends(BaseProfileRequestSchema.from_form),
         Authorization: str = Header(..., description="Bearer токен у форматі 'Bearer <token>'"),
         db: AsyncSession = Depends(get_db),
         jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
@@ -111,7 +112,16 @@ async def register_user_profile(
         db.add(new_profile)
         await db.commit()
         await db.refresh(new_profile)
-        return BaseProfileResponseSchema.model_validate(new_profile)
+        return BaseProfileResponseSchema(
+            id=new_profile.id,
+            user_id=new_profile.user_id,
+            first_name=new_profile.first_name,
+            last_name=new_profile.last_name,
+            gender=new_profile.gender,
+            date_of_birth=new_profile.date_of_birth,
+            info=new_profile.info,
+            avatar=cast(HttpUrl, filename),
+        )
     except SQLAlchemyError:
         await db.rollback()
         raise HTTPException(
