@@ -35,7 +35,7 @@ router = APIRouter()
 async def register_user_profile(
         user_id: int,
         user_data: BaseProfileRequestSchema = Depends(BaseProfileRequestSchema.from_form),
-        Authorization: str = Header(..., description="Bearer токен у форматі 'Bearer <token>'"),
+        Authorization: str = Header(..., description="Invalid Authorization header format. Expected 'Bearer <token>'"),
         db: AsyncSession = Depends(get_db),
         jwt_auth_manager: JWTAuthManagerInterface = Depends(get_jwt_auth_manager),
         s3_storage: S3StorageInterface = Depends(get_s3_storage_client)
